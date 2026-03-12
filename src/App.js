@@ -7,6 +7,7 @@ import store from './redux/store';
 import Navbar from './components/Navbar';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import POS from './pages/POS';
 import './App.css';
 import ProductManagement from './pages/ProductManagement';
 import { toast } from 'react-toastify';
@@ -68,9 +69,7 @@ function App() {
               path="/pos" 
               element={
                 <ProtectedRoute>
-                  <div style={{ textAlign: 'center', padding: '50px' }}>
-                    <h2>POS Page Coming Soon...</h2>
-                  </div>
+                  <POS />
                 </ProtectedRoute>
               } 
             />
