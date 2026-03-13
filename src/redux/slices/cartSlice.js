@@ -5,7 +5,6 @@ const initialState = {
   subtotal: 0,
   tax: 0,
   total: 0,
-  discount: 0,
 };
 
 const cartSlice = createSlice({
@@ -22,19 +21,22 @@ const cartSlice = createSlice({
       } else {
         state.cartItems.push({
           ...item,
-          stockQuantity: item.quantity, // Store original stock
-          quantity: 1,                   // Cart quantity starts at 1
+          stockQuantity: item.quantity,
+          quantity: 1,
           subtotal: item.price,
         });
       }
 
-      cartSlice.caseReducers.calculateTotals(state);
+      state.subtotal = state.cartItems.reduce((sum, i) => sum + i.subtotal, 0);
+      state.tax = state.subtotal * 0.05;
+      state.total = state.subtotal + state.tax;
     },
 
     removeFromCart: (state, action) => {
-      const id = action.payload;
-      state.cartItems = state.cartItems.filter((item) => item._id !== id);
-      cartSlice.caseReducers.calculateTotals(state);
+      state.cartItems = state.cartItems.filter((item) => item._id !== action.payload);
+      state.subtotal = state.cartItems.reduce((sum, i) => sum + i.subtotal, 0);
+      state.tax = state.subtotal * 0.05;
+      state.total = state.subtotal + state.tax;
     },
 
     updateQuantity: (state, action) => {
@@ -44,7 +46,9 @@ const cartSlice = createSlice({
       if (item && quantity > 0) {
         item.quantity = quantity;
         item.subtotal = item.quantity * item.price;
-        cartSlice.caseReducers.calculateTotals(state);
+        state.subtotal = state.cartItems.reduce((sum, i) => sum + i.subtotal, 0);
+        state.tax = state.subtotal * 0.05;
+        state.total = state.subtotal + state.tax;
       }
     },
 
@@ -53,39 +57,9 @@ const cartSlice = createSlice({
       state.subtotal = 0;
       state.tax = 0;
       state.total = 0;
-      state.discount = 0;
-    },
-
-    setDiscount: (state, action) => {
-      state.discount = action.payload;
-      cartSlice.caseReducers.calculateTotals(state);
-    },
-
-    calculateTotals: (state) => {
-      // Calculate subtotal
-      state.subtotal = state.cartItems.reduce((sum, item) => sum + item.subtotal, 0);
-      
-      // Calculate tax (5%)
-      state.tax = state.subtotal * 0.05;
-      
-      // Calculate total
-      state.total = state.subtotal + state.tax - state.discount;
-      
-      // Ensure total is not negative
-      if (state.total < 0) {
-        state.total = 0;
-      }
     },
   },
 });
 
-export const { 
-  addToCart, 
-  removeFromCart, 
-  updateQuantity, 
-  clearCart,
-  setDiscount,
-  calculateTotals 
-} = cartSlice.actions;
-
+export const { addToCart, removeFromCart, updateQuantity, clearCart } = cartSlice.actions;
 export default cartSlice.reducer;

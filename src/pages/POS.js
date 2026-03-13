@@ -1,8 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { toast } from 'react-toastify';
 import { addToCart, removeFromCart, updateQuantity, clearCart } from '../redux/slices/cartSlice';
-import { getProductByBarcode, createSale, getCustomerByPhone } from '../services/api';
+import { getProductByBarcode, getCustomerByPhone } from '../services/api';
+import offlineManager from '../utils/offlineManager';
+import offlineDB from '../utils/offlineDB';
 import './POS.css';
 
 const POS = () => {
@@ -19,41 +21,90 @@ const POS = () => {
 
   const barcodeInputRef = useRef(null);
 
+  // Initialize offline database and sync products
+  useEffect(() => {
+    const initializeOffline = async () => {
+      try {
+        await offlineDB.init();
+        console.log('✅ Offline DB initialized');
+        
+        // Sync products from server to local DB
+        await offlineManager.syncProducts();
+        console.log('✅ Products synced to offline DB');
+        
+        // Get count of products in offline DB
+        const products = await offlineDB.getProducts();
+        console.log(`📦 ${products.length} products available offline`);
+      } catch (error) {
+        console.error('❌ Failed to initialize offline mode:', error);
+        toast.error('Failed to initialize offline mode');
+      }
+    };
+
+    initializeOffline();
+  }, []);
+
   const handleBarcodeSubmit = async (e) => {
     e.preventDefault();
     if (!barcode.trim()) return;
 
     try {
-      const { data } = await getProductByBarcode(barcode);
+      // Step 1: Try offline DB first (faster)
+      let data = await offlineManager.getProductByBarcode(barcode);
       
+      // Step 2: If not found offline and we're online, try server
+      if (!data && navigator.onLine) {
+        try {
+          const response = await getProductByBarcode(barcode);
+          data = response.data;
+          
+          // Save to offline DB for future use
+          await offlineDB.saveProducts([data]);
+          console.log('✅ Product fetched from server and cached');
+        } catch (error) {
+          console.error('❌ Product not on server:', error);
+        }
+      }
+      
+      // Step 3: Still not found? Show error
+      if (!data) {
+        toast.error('Product not found. Check barcode or add product first.');
+        setBarcode('');
+        return;
+      }
+
+      // Step 4: Check stock
       if (data.quantity <= 0) {
         toast.error('Product out of stock');
         setBarcode('');
         return;
       }
 
+      // Step 5: Add to cart
       dispatch(addToCart(data));
       toast.success(`${data.name} added to cart`);
       setBarcode('');
       barcodeInputRef.current?.focus();
+      
     } catch (error) {
+      console.error('❌ Error finding product:', error);
       toast.error('Product not found');
       setBarcode('');
     }
   };
 
   const handleQuantityChange = (id, newQuantity) => {
-  if (newQuantity < 1) return;
-  
-  const item = cartItems.find(i => i._id === id);
-  
-  if (item && newQuantity > item.stockQuantity) {
-    toast.warning(`Only ${item.stockQuantity} available in stock`);
-    return;
-  }
-  
-  dispatch(updateQuantity({ id, quantity: newQuantity }));
-};
+    if (newQuantity < 1) return;
+    
+    const item = cartItems.find(i => i._id === id);
+    
+    if (item && newQuantity > item.stockQuantity) {
+      toast.warning(`Only ${item.stockQuantity} available in stock`);
+      return;
+    }
+    
+    dispatch(updateQuantity({ id, quantity: newQuantity }));
+  };
 
   const handleRemoveItem = (id) => {
     dispatch(removeFromCart(id));
@@ -106,9 +157,22 @@ const POS = () => {
         customer: customer?._id || null,
       };
 
-      const { data } = await createSale(saleData);
+      const result = await offlineManager.createSale(saleData);
       
-      toast.success(`Sale completed! Total: $${total.toFixed(2)}`);
+      // Update local product quantities
+      for (const item of cartItems) {
+        const newQuantity = item.stockQuantity - item.quantity;
+        await offlineManager.updateProductQuantity(item._id, newQuantity);
+      }
+
+      if (result.offline) {
+        toast.success('Sale saved offline! Will sync when online.');
+      } else {
+        toast.success(`Sale completed! Total: $${total.toFixed(2)}`);
+      }
+      
+      // Show receipt info
+      alert(`✅ Sale Completed!\n\nTotal: $${total.toFixed(2)}\nPaid: $${paid.toFixed(2)}\nChange: $${(paid - total).toFixed(2)}\n\nPayment: ${paymentMethod}`);
       
       // Reset form
       dispatch(clearCart());
@@ -116,9 +180,6 @@ const POS = () => {
       setCustomerPhone('');
       setCustomer(null);
       setPaymentMethod('cash');
-      
-      // Show receipt info
-      alert(`✅ Sale Completed!\n\nSale ID: ${data._id}\nTotal: $${total.toFixed(2)}\nChange: $${(paid - total).toFixed(2)}`);
       
     } catch (error) {
       const message = error.response?.data?.message || 'Sale failed';
@@ -146,6 +207,7 @@ const POS = () => {
             onChange={(e) => setBarcode(e.target.value)}
             placeholder="Scan or enter barcode..."
             className="barcode-input"
+            autoFocus
           />
           <button type="submit" className="btn-scan">Add</button>
         </form>
@@ -161,51 +223,64 @@ const POS = () => {
             </div>
           ) : (
             <div className="cart-items">
-              {cartItems.map((item) => (
-                <div key={item._id} className="cart-item">
-                  <div className="item-info">
-                    <h4>{item.name}</h4>
-                    <p className="item-barcode">{item.barcode}</p>
-                    <p className="item-price">${item.price.toFixed(2)} each</p>
-                  </div>
-                  
-                  <div className="item-controls">
-                    <div className="quantity-controls">
-                      <button
-                        onClick={() => handleQuantityChange(item._id, item.quantity - 1)}
-                        className="qty-btn"
-                        type="button"
-                      >
-                        -
-                      </button>
-                      <input
-                        type="number"
-                        value={item.quantity}
-                        onChange={(e) => handleQuantityChange(item._id, parseInt(e.target.value) || 1)}
-                        className="qty-input"
-                        min="1"
-                      />
-                      <button
-                        onClick={() => handleQuantityChange(item._id, item.quantity + 1)}
-                        className="qty-btn"
-                        type="button"
-                      >
-                        +
-                      </button>
+              {cartItems.map((item) => {
+                // Safety variables
+                const itemId = item._id || '';
+                const itemName = item.name || 'Unknown Product';
+                const itemBarcode = item.barcode || 'N/A';
+                const itemPrice = Number(item.price) || 0;
+                const itemQuantity = Number(item.quantity) || 1;
+                const itemStock = Number(item.stockQuantity) || 0;
+                const itemSubtotal = Number(item.subtotal) || 0;
+
+                return (
+                  <div key={itemId} className="cart-item">
+                    <div className="item-info">
+                      <h4>{itemName}</h4>
+                      <p className="item-barcode">{itemBarcode}</p>
+                      <p className="item-price">${itemPrice.toFixed(2)} each</p>
+                      <p className="item-stock">Stock: {itemStock}</p>
                     </div>
                     
-                    <div className="item-total">${item.subtotal.toFixed(2)}</div>
-                    
-                    <button
-                      onClick={() => handleRemoveItem(item._id)}
-                      className="btn-remove"
-                      type="button"
-                    >
-                      ✕
-                    </button>
+                    <div className="item-controls">
+                      <div className="quantity-controls">
+                        <button
+                          onClick={() => handleQuantityChange(itemId, itemQuantity - 1)}
+                          className="qty-btn"
+                          type="button"
+                        >
+                          -
+                        </button>
+                        <input
+                          type="number"
+                          value={itemQuantity}
+                          onChange={(e) => handleQuantityChange(itemId, parseInt(e.target.value) || 1)}
+                          className="qty-input"
+                          min="1"
+                          max={itemStock}
+                        />
+                        <button
+                          onClick={() => handleQuantityChange(itemId, itemQuantity + 1)}
+                          className="qty-btn"
+                          type="button"
+                        >
+                          +
+                        </button>
+                      </div>
+                      
+                      <div className="item-total">${itemSubtotal.toFixed(2)}</div>
+                      
+                      <button
+                        onClick={() => handleRemoveItem(itemId)}
+                        className="btn-remove"
+                        type="button"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -229,7 +304,8 @@ const POS = () => {
           {customer && (
             <div className="customer-info">
               <p><strong>{customer.name}</strong></p>
-              <p>Points: {customer.loyaltyPoints}</p>
+              <p>Phone: {customer.phone}</p>
+              <p>Points: {customer.loyaltyPoints || 0}</p>
             </div>
           )}
         </div>
@@ -239,17 +315,17 @@ const POS = () => {
           
           <div className="summary-row">
             <span>Subtotal:</span>
-            <span>${subtotal.toFixed(2)}</span>
+            <span>${(Number(subtotal) || 0).toFixed(2)}</span>
           </div>
           
           <div className="summary-row">
             <span>Tax (5%):</span>
-            <span>${tax.toFixed(2)}</span>
+            <span>${(Number(tax) || 0).toFixed(2)}</span>
           </div>
           
           <div className="summary-row total-row">
             <span>Total:</span>
-            <span>${total.toFixed(2)}</span>
+            <span>${(Number(total) || 0).toFixed(2)}</span>
           </div>
         </div>
 
@@ -285,7 +361,7 @@ const POS = () => {
             <div className={`change-display ${change < 0 ? 'insufficient' : ''}`}>
               <span>Change:</span>
               <span className="change-amount">
-                ${change.toFixed(2)}
+                ${(Number(change) || 0).toFixed(2)}
               </span>
             </div>
           )}
@@ -300,7 +376,10 @@ const POS = () => {
           </button>
 
           <button
-            onClick={() => dispatch(clearCart())}
+            onClick={() => {
+              dispatch(clearCart());
+              toast.info('Cart cleared');
+            }}
             disabled={cartItems.length === 0}
             className="btn-clear"
             type="button"

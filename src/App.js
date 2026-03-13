@@ -1,17 +1,18 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Provider, useSelector } from 'react-redux';
-import { ToastContainer } from 'react-toastify';
+import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import store from './redux/store';
 import Navbar from './components/Navbar';
+import OfflineStatus from './components/OfflineStatus';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import POS from './pages/POS';
-import './App.css';
 import ProductManagement from './pages/ProductManagement';
-import { toast } from 'react-toastify';
+import './App.css';
 
+// Protected Route Component
 const ProtectedRoute = ({ children }) => {
   const { isAuthenticated } = useSelector((state) => state.auth);
   
@@ -53,6 +54,7 @@ function App() {
     <Provider store={store}>
       <Router>
         <div className="App">
+          <OfflineStatus />
           <Routes>
             <Route path="/login" element={<Login />} />
             

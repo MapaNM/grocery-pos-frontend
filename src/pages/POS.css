@@ -371,3 +371,8 @@
     min-height: 400px;
   }
 }
+.item-stock {
+  font-size: 11px;
+  color: #999;
+  margin: 2px 0 0 0;
+}
