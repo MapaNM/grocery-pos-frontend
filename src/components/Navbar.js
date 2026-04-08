@@ -17,7 +17,7 @@ const Navbar = () => {
   return (
     <nav className="navbar">
       <div className="nav-brand">
-        <h1>🛒 Grocery POS</h1>
+        <h1>🛒 Mini Mart POS</h1>
       </div>
 
       <div className="nav-links">
