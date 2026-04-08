@@ -319,7 +319,7 @@ const POS = () => {
           </div>
           
           <div className="summary-row">
-            <span>Tax (5%):</span>
+            <span>Tax (15%):</span>
             <span>${(Number(tax) || 0).toFixed(2)}</span>
           </div>
           
