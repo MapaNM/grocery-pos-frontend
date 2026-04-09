@@ -1,5 +1,5 @@
 import offlineDB from './offlineDB';
-import { getProducts, createSale } from '../services/api';
+import { getProducts, createSale, getProductByBarcode } from '../services/api';
 
 class OfflineManager {
   constructor() {
@@ -81,8 +81,24 @@ class OfflineManager {
 
   // Get product by barcode (online or offline)
   async getProductByBarcode(barcode) {
-    return await offlineDB.getProductByBarcode(barcode);
+  // First try offline DB
+  const offlineProduct = await offlineDB.getProductByBarcode(barcode);
+  if (offlineProduct) return offlineProduct;
+
+  // If not found offline and we're online, try server
+  if (this.isOnline) {
+    try {
+      const { data } = await getProductByBarcode(barcode); // ← need to import this
+      await offlineDB.saveProducts([data]); // cache it
+      return data;
+    } catch (error) {
+      console.error('❌ Product not found on server:', error);
+      return null;
+    }
   }
+
+  return null;
+}
 
   // Create sale (online or offline)
   async createSale(saleData) {
